@@ -26,3 +26,32 @@ F1 Score (Weighted): 0.520
  [   4    7   93    0    0]
  [   5  229  438   30    4]
  [   0    0    0    0    0]]
+
+
+12:03PM 02062024
+Accuracy: 0.099
+Accuracy for label 0: 0.971
+Accuracy for label 1: 0.013
+Accuracy for label 2: 0.432
+Accuracy for label 3: 0.007
+
+Classification Report:
+              precision    recall  f1-score   support
+
+         API       0.02      0.97      0.04       104
+       Black       0.47      0.01      0.02       706
+    Hispanic       0.89      0.43      0.58       874
+       White       0.73      0.01      0.01      3504
+
+    accuracy                           0.10      5188
+   macro avg       0.53      0.36      0.17      5188
+weighted avg       0.71      0.10      0.11      5188
+
+F1 Score (Micro): 0.099
+F1 Score (Macro): 0.166
+F1 Score (Weighted): 0.112
+
+[[ 378    2    3  491]
+ [   2    9    6  689]
+ [  41    8   24 3431]
+ [   3    0    0  101]]
