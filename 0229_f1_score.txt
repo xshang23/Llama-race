@@ -1,0 +1,7 @@
+F1 Score (Micro): 0.837
+F1 Score (Macro): 0.714
+F1 Score (Weighted): 0.826
+--------------below is for un-shuffle test----------------
+F1 Score (Micro): 0.840
+F1 Score (Macro): 0.716
+F1 Score (Weighted): 0.826

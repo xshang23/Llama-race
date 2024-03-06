@@ -1,0 +1,3 @@
+Disparate Impact is: 0.6512
+--------------below is for un-shuffle test----------------
+Disparate Impact is: 0.6305
