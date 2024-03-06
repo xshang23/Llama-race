@@ -165,5 +165,6 @@ data/
 #trained models
 trained_weigths/
 merged_model/
+model/
 
 
