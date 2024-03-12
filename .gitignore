@@ -166,5 +166,6 @@ data/
 trained_weigths/
 merged_model/
 model/
+logs/
 
 
