@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from sklearn.model_selection import train_test_split
 from datasets import Dataset
+from torch.utils.data import DataLoader, Dataset
 import random
 
 
@@ -72,11 +73,11 @@ def load_balanced_training_data(dir='data', shuffle=False, training_num_samples_
 
     train_df = train_df.groupby('label').apply(lambda x: x.sample(n=min(len(x), training_num_samples_per_class))).reset_index(drop=True)
     train_df = train_df.sample(frac=1).reset_index(drop=True)
-    print(train_df['label'].value_counts())
+    # print(train_df['label'].value_counts())
     
     eval_df = eval_df.groupby('label').apply(lambda x: x.sample(n=min(len(x), eval_num_samples_per_class))).reset_index(drop=True)
     eval_df = eval_df.sample(frac=1).reset_index(drop=True)
-    print(eval_df['label'].value_counts())
+    # print(eval_df['label'].value_counts())
 
     train_df = pd.DataFrame(train_df.apply(lambda row: generate_prompt(row, shuffle=shuffle), axis=1), columns=["name"])
     eval_df = pd.DataFrame(eval_df.apply(lambda row: generate_prompt(row, shuffle=shuffle), axis=1), columns=["name"])
@@ -123,6 +124,72 @@ def load_training_data(dir='data', shuffle=False, frac=1):
 
     del train_df, eval_df
     return train_data, eval_data
+
+
+def load_training_data_for_fairness_loss(dir='data', shuffle=False, frac=0.01,batch_size=100):
+    """
+    Load training data and pre-process datasets
+
+    Args:
+    dir: str
+        Directory where data is stored
+    shuffle: bool
+        Whether to shuffle the order of categories in the prompt
+    frac: float
+        Fraction of the training data to use
+
+    Returns:
+    train_data: Dataset
+        Training dataset
+    eval_data: Dataset
+        Evaluation dataset
+    """
+    data_dir = os.path.join(cwd, dir)
+    race2num = {
+    'API': 0,
+    'Black': 1,
+    'Hispanic': 2,
+    'White': 3
+    }
+
+    # load data and pre-process datasets
+    train_df = pd.read_csv(os.path.join(data_dir, 'gptTrainNames.csv'))
+    eval_df = pd.read_csv(os.path.join(data_dir, 'gptValNames.csv'))
+
+    train_df = train_df.sample(frac=frac, random_state=10).reset_index(drop=True)
+    eval_df = eval_df.sample(frac=frac, random_state=10).reset_index(drop=True)
+
+    y_train_true = [race2num[category] for category in train_df.label.values]
+    y_eval_true = [race2num[category] for category in eval_df.label.values]
+
+    train_df = pd.DataFrame(train_df.apply(lambda row: generate_prompt(row, shuffle=shuffle), axis=1), columns=["name"])
+    eval_df = pd.DataFrame(eval_df.apply(lambda row: generate_prompt(row, shuffle=shuffle), axis=1), columns=["name"])
+
+    class MyDataset(Dataset):
+        def __init__(self, data, label):
+            self.data = data['name']
+            self.label = label
+
+        def __len__(self):
+            return len(self.data)
+
+        def __getitem__(self, idx):
+            data_item = self.data[idx] 
+            label_item = self.label[idx]
+            return [data_item, label_item]
+
+    train_data = MyDataset(train_df, y_train_true)
+    eval_data = MyDataset(eval_df, y_eval_true)
+    def custom_collate(batch):
+        data = [item[0] for item in batch]
+        target = [item[1] for item in batch]
+        return {"data": data, "label": target}
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=custom_collate)
+    eval_loader = DataLoader(eval_data, batch_size=batch_size, shuffle=False, collate_fn=custom_collate)
+    train_length = len(train_data)
+
+    del train_df, eval_df
+    return train_loader, eval_loader, train_length
 
 
 

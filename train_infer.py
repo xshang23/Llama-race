@@ -5,7 +5,7 @@ from data_util import load_balanced_training_data, load_test_data
 from peft import LoraConfig
 from trl import SFTTrainer
 from trl import setup_chat_format
-import metrics
+import evaluation
 from transformers import (AutoModelForCausalLM, 
                           AutoTokenizer, 
                           BitsAndBytesConfig, 
@@ -144,11 +144,11 @@ def evaluate(y_true, y_pred, file_name='res.txt'):
     print(conf_matrix)
 
     # Calculate 1-GAP
-    gap = metrics.gap(y_true, y_pred)
+    gap = evaluation.gap(y_true, y_pred)
     print(f'1-GAP: {gap:.3f}')
 
     # Calculate Disparate Impact
-    dis = metrics.disparate_impact(y_true, y_pred)
+    dis = evaluation.disparate_impact(y_true, y_pred)
     print(f'Disparate Impact: {dis:.3f}')
 
     with open(file_name, 'w') as f:
