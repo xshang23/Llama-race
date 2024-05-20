@@ -2,30 +2,33 @@ import numpy as np
 import os
 from sklearn.metrics import confusion_matrix, recall_score, accuracy_score, classification_report
 
-def evaluate(y_true, y_pred, logger):
+def evaluate(y_true, y_pred, logger=None):
     labels = ['API', 'Black', 'Hispanic', 'White']
     
     # Calculate accuracy
     accuracy = accuracy_score(y_true=y_true, y_pred=y_pred)
     print(f'Accuracy: {accuracy:.3f}')
-    logger.info(f'Accuracy: {accuracy:.3f}')
         
     # Generate classification report
     class_report = classification_report(y_true=y_true, y_pred=y_pred, target_names=labels)
     print('\nClassification Report:')
     print(class_report)
-    logger.info('Classification Report:')
-    logger.info('\n'+class_report)
+    
     
     # Generate confusion matrix
     conf_matrix = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=labels)
     print('\nConfusion Matrix:')
     print(conf_matrix)
-    logger.info('Confusion Matrix:')
-    logger.info('\n'+conf_matrix)
+    
+    # write to log
+    if logger!=None:
+        logger.info(f'Accuracy: {accuracy:.3f}')
+        logger.info(f'Classification Report:\n{class_report}')
+        logger.info(f'Confusion Matrix:\n{conf_matrix}')
+        
 
 
-def gap(y_true, y_pred, logger):
+def gap(y_true, y_pred, logger=None):
     cm = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=['API','Black','Hispanic','White'])
     # metrics_per_class = {}
     tpr, tnr = [], []
@@ -48,17 +51,19 @@ def gap(y_true, y_pred, logger):
         gap += abs(temp[i]-temp[-1])
     gap /= 3
     print("1-GAP: ", round(1-gap, 4))
-    logger.info("1-GAP: ", round(1-gap, 4))
+    if logger!= None:
+        logger.info(f'1-GAP: {round(1-gap, 4)}')
     return round(1-gap, 4)
 
-def disparate_impact(y_true, y_pred, logger):
+def disparate_impact(y_true, y_pred, logger=None):
     recalls = recall_score(y_true, y_pred, average=None, labels=['API','Black','Hispanic','White'])
     dis = 0.0
     for i in range(len(recalls)-1):
         dis += recalls[i]/recalls[-1]
     dis /= (len(recalls)-1)
     print('Disparate Impact is:',round(dis, 4))
-    logger.info('Disparate Impact is:',round(dis, 4))
+    if logger!= None:
+        logger.info(f'Disparate Impact: {round(dis, 4)}')
     return round(dis, 4)
 
 class AverageMeter(object):

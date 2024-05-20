@@ -19,7 +19,14 @@ Confusion Matrix:
  [   14    45  3778   425]
  [   58   559   738 16091]]
 
+F1 Score (Micro): 0.837
+F1 Score (Macro): 0.714
+F1 Score (Weighted): 0.826
 
+1-GAP:  0.9033
+Disparate Impact is: 0.6511879326973569
+
+===============================================
 
 Accuracy: 0.840
 
@@ -41,14 +48,10 @@ Confusion Matrix:
  [   11  1461   140  2108]
  [   13    36  3760   453]
  [   39   400   698 16309]]
-F1 Score (Micro): 0.837
-F1 Score (Macro): 0.714
-F1 Score (Weighted): 0.826
---------------below is for un-shuffle test----------------
+
 F1 Score (Micro): 0.840
 F1 Score (Macro): 0.716
 F1 Score (Weighted): 0.826
-1-GAP:  0.9033
+
 1-GAP:  0.9016
-Disparate Impact is: 0.6511879326973569
 Disparate Impact is: 0.6304766753958225

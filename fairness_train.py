@@ -3,6 +3,7 @@ import random
 import pandas as pd
 import os
 from tqdm import tqdm
+import argparse
 import torch
 from data_util import load_training_data_for_fairness_loss, load_test_data
 from fairness_loss import fair_loss
@@ -21,23 +22,11 @@ from datetime import datetime
 import logging
 from torch.utils.tensorboard import SummaryWriter
 
+MODEL_PATH = {'meta-llama/Llama-2-7b-chat-hf': '/home/common_models/Llama-2-7b-chat-hf', 
+              'mistralai/Mistral-7B-v0.1': '/home/common_models/Mistral-7B-v0.1'}
 
-# get working directory
-cwd = os.getcwd()
-# data_dir = os.path.join(cwd, 'data')
-model_dir = os.path.join(cwd, 'model')
 
-log_dir = os.path.join(cwd, 'logs','fair_loss')
-if not os.path.exists(log_dir):
-    os.mkdir(log_dir)
-logging.basicConfig(filename=os.path.join(log_dir, "fairloss.txt"),
-                    filemode='a',
-                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
-def predict(test, model, tokenizer):
+def predict(test, model, tokenizer, logger=None):
     y_pred = []
     for i in tqdm(range(len(test))):
     # for i in [69, 222, 676, 1270, 2060, 3684, 3827, 4472, 4799, 4972, 5120]:
@@ -45,7 +34,7 @@ def predict(test, model, tokenizer):
         pipe = pipeline(task="text-generation", 
                         model=model, 
                         tokenizer=tokenizer, 
-                        max_new_tokens = 4, 
+                        max_new_tokens = 3, 
                         # temperature = 0.01,
                         do_sample = False,
                        )
@@ -54,30 +43,57 @@ def predict(test, model, tokenizer):
         # print(prompt, answer)
         if "asian" in answer or "api" in answer:
             y_pred.append("API")
-        elif "black" in answer:
+        elif "black" in answer or 'b' in answer:
             y_pred.append("Black")
         elif "hispanic" in answer:
             y_pred.append("Hispanic")
         elif "white" in answer:
             y_pred.append("White")
         else:
-            y_pred.append("none")
+            y_pred.append(answer)
+            if logger:
+                logger.info(f"index{i}: {answer}")
             print(prompt,answer)
     return y_pred
 
-def main():
-    # Load training and test data
-    train_loader, eval_loader, train_length = load_training_data_for_fairness_loss(batch_size=10)
-    test_df, y_true = load_test_data()
+def main(frac=0.01, 
+         lambda_val=0.2, 
+         num_epochs=2, 
+         batch_size=16, 
+         model_name="meta-llama/Llama-2-7b-chat-hf"):
+    
+    # get working directory
+    cwd = os.getcwd()
+    # data_dir = os.path.join(cwd, 'data')
+    model_dir = os.path.join(cwd, 'model')
+    # print(model_dir)
 
-    model_name = "meta-llama/Llama-2-7b-chat-hf"
-    num_epochs = 2
+    log_dir = os.path.join(cwd, 'logs','fair_loss', model_name.split("/")[1])
+    if not os.path.exists(log_dir):
+        os.mkdir(log_dir)
+    logging.basicConfig(filename=os.path.join(log_dir, f'fairloss_{lambda_val}.txt'),
+                    filemode='a',
+                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.DEBUG)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Training and testing with frac={frac}, lambda={lambda_val}, num_epochs={num_epochs}, batch_size={batch_size}, model_name={model_name}")
+    print(f"Training and testing with frac={frac}, lambda={lambda_val}, num_epochs={num_epochs}, batch_size={batch_size}, model_name={model_name}")
+
+
+    # Load training and test data
+    train_loader, eval_loader, train_length = load_training_data_for_fairness_loss(frac=frac, batch_size=batch_size)
+    test_df, y_true = load_test_data(frac=frac)
+
+    # model_name = "meta-llama/Llama-2-7b-chat-hf"
+    # num_epochs = 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = AutoModelForCausalLM.from_pretrained(
-            model_name, 
+            # model_name,
+            MODEL_PATH[model_name], 
             torch_dtype=torch.bfloat16,
             device_map=device,
-            token='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'
+            # token='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',
         )
 
     peft_config = LoraConfig(
@@ -88,7 +104,11 @@ def main():
             task_type="CAUSAL_LM",
         )
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name,)
+    tokenizer = AutoTokenizer.from_pretrained(
+                    # model_name,
+                    MODEL_PATH[model_name],
+                    # token='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',
+                    )
     # if tokenizer.pad_token_id is None:
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -104,9 +124,12 @@ def main():
                 )
     
     output_dir = "trained_weights"
-    logwriter = SummaryWriter(os.path.join(cwd, output_dir, "runs",datetime.now().strftime("%b%d_%H-%M-%S")))
+    logwriter = SummaryWriter(os.path.join(cwd, output_dir, "runs", f'{model_name.split("/")[-1]}_{lambda_val}_' + str(datetime.now().strftime("%b%d_%H-%M-%S"))))
+
     current_step = 0
     avg_train_loss = AverageMeter()
+    avg_train_fairness_loss = AverageMeter()
+    avg_train_llm_loss = AverageMeter()
     avg_val_loss = AverageMeter()
     for epoch in tqdm(range(num_epochs)):
         print(f"Epoch {epoch + 1}")
@@ -116,13 +139,26 @@ def main():
             input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=True).input_ids.to(device)
             vir_labels = input_ids.to(device)
             outputs = model(input_ids=input_ids, labels=vir_labels)
-            labels = torch.tensor(batch['label']).to(device) 
-            fairness_loss = fair_loss(outputs.logits, labels, tokenizer, lambda_val=1.0)
+            labels = torch.tensor(batch['label']).to(device)
+            if lambda_val == 0:
+                fairness_loss = 0 
+            else:
+                fairness_loss, adjustment_factor = fair_loss(outputs.loss, outputs.logits, labels, tokenizer, lambda_val=lambda_val)
             loss = outputs.loss + fairness_loss
+            
+            avg_train_loss.update(loss.detach().float().item())
+            avg_train_fairness_loss.update(fairness_loss.detach().float().item())
+            avg_train_llm_loss.update(outputs.loss.detach().float().item())
+            
+            logwriter.add_scalar('Training_avg/train_loss_avg', avg_train_loss.avg, current_step)            
+            logwriter.add_scalar('Training_avg/LLM_loss_avg', avg_train_llm_loss.avg, current_step)
+            logwriter.add_scalar('Training_avg/fairness_loss_avg', avg_train_fairness_loss.avg, current_step)
+
+            logwriter.add_scalar('Training/adjust_factor', adjustment_factor, current_step)
             logwriter.add_scalar('Training/train_loss_step', loss.detach().float().item(), current_step)
+            logwriter.add_scalar('Training/LLM_loss_step', outputs.loss.detach().float().item(), current_step)
             logwriter.add_scalar('Training/fairness_loss_step', fairness_loss.detach().float().item(), current_step)
             current_step += 1
-            avg_train_loss.update(loss.detach().float().item())
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
@@ -135,23 +171,53 @@ def main():
             vir_labels = input_ids.to(device)
             outputs = model(input_ids=input_ids, labels=vir_labels)
             labels = torch.tensor(batch['label']).to(device)
-            fairness_loss = fair_loss(outputs.logits, labels, tokenizer, lambda_val=1.0)
+            if lambda_val == 0:
+                fairness_loss = torch.tensor(0).to(device) 
+            else:   
+                fairness_loss = fair_loss(outputs.loss, outputs.logits, labels, tokenizer, lambda_val=lambda_val)
             loss = outputs.loss + fairness_loss
             avg_val_loss.update(loss.detach().float().item())
 
-        logwriter.add_scalar('Training/train_loss_epoch', avg_train_loss.avg, epoch)
-        logwriter.add_scalar('Training/val_loss_epoch', avg_val_loss.avg, epoch)
+        logwriter.add_scalar('Validation/train_loss_epoch', avg_train_loss.avg, epoch)
+        logwriter.add_scalar('Validation/val_loss_epoch', avg_val_loss.avg, epoch)
 
-    torch.save(model.state_dict(), os.path.join(model_dir, "fair_loss_0.1lambda.pt"))
-
-    y_pred = predict(test_df, model, tokenizer)
-    evaluate(y_true, y_pred, logger)
-    gap(y_true, y_pred, logger)
-    disparate_impact(y_true, y_pred, logger)
+    try:
+        torch.save(model.state_dict(), os.path.join(model_dir, f'fair_loss_{lambda_val}lambda_{model_name.split("/")[1]}.pth'))
+    except Exception as e:
+        print("Error saving model:", e)
+        logger.error("Error saving model:", e)
+        
+    y_pred = predict(test_df, model, tokenizer,logger=logger)
+    evaluate(y_true, y_pred, logger=logger)
+    gap(y_true, y_pred, logger=logger)
+    disparate_impact(y_true, y_pred, logger=logger)
+    logger.info("End of training and testing\n")
+    
 
 if __name__ == "__main__":
-    main()
+    # Setup the argument parser
+    parser = argparse.ArgumentParser(description="Run the training model with specified parameters.")
 
+    # Add arguments
+    parser.add_argument("--bal_test", type=bool, default=False, help="Balance test flag (default: False)")
+    parser.add_argument("--frac", type=float, default=0.01, help="Fraction of the data to use (default: 0.01)")
+    parser.add_argument("--lambda_val", type=float, default=0.1, help="Lambda value (default: 0.1)")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size (default: 16)")
+    parser.add_argument("--model_name", type=str, default="meta-llama/Llama-2-7b-chat-hf", help="Model name (default: meta-llama/Llama-2-7b-chat-hf)")
+    # parser.add_argument("--training_num_samples_per_class", type=int, default=180000, help="Number of training samples per class (default: 180000)")
+    # parser.add_argument("--eval_num_samples_per_class", type=int, default=20000, help="Number of evaluation samples per class (default: 20000)")
 
-        
-        
+    # Parse the arguments
+    args = parser.parse_args()
+    
+    # model_name = "meta-llama/Llama-2-7b-chat-hf", "mistralai/Mistral-7B-v0.1"
+
+    # Use the parsed arguments to run the main function
+    main(# bal_test=args.bal_test, 
+        frac=args.frac, 
+        lambda_val=args.lambda_val, 
+        batch_size=args.batch_size,  
+        # training_num_samples_per_class=args.training_num_samples_per_class,
+        # eval_num_samples_per_class=args.eval_num_samples_per_class,
+        model_name=args.model_name)
+

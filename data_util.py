@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import os
 from sklearn.model_selection import train_test_split
-from datasets import Dataset
+from datasets import Dataset as DS
 from torch.utils.data import DataLoader, Dataset
 import random
 
@@ -82,8 +82,8 @@ def load_balanced_training_data(dir='data', shuffle=False, training_num_samples_
     train_df = pd.DataFrame(train_df.apply(lambda row: generate_prompt(row, shuffle=shuffle), axis=1), columns=["name"])
     eval_df = pd.DataFrame(eval_df.apply(lambda row: generate_prompt(row, shuffle=shuffle), axis=1), columns=["name"])
     
-    train_data = Dataset.from_pandas(train_df)
-    eval_data = Dataset.from_pandas(eval_df)
+    train_data = DS.from_pandas(train_df)
+    eval_data = DS.from_pandas(eval_df)
 
     del train_df, eval_df
     return train_data, eval_data

@@ -1,7 +1,18 @@
 import torch
 from torch import nn
+import numpy as np
 
-def fair_loss(logits, labels, tokenizer, lambda_val=0.1):
+def adjust_scale(a, b):
+    # Calculate the order of magnitude of both numbers
+    order_of_a = np.floor(np.log10(np.abs(a)))
+    order_of_b = np.floor(np.log10(np.abs(b)))
+    
+    # Calculate the adjustment factor
+    adjustment_factor = 10 ** (- 1 + order_of_a - order_of_b)
+    
+    return adjustment_factor
+
+def fair_loss(llm_loss, logits, labels, tokenizer, lambda_val=0.1):
     class_names = ["Asian", "Black", "Hispanic", "White"]
     class_tokens = [tokenizer.encode(class_name, add_special_tokens=False)[-1] for class_name in class_names]
     last_token_logits = logits[:, -1, :]  # Shape: [batch_size, vocabulary_size]
@@ -31,9 +42,10 @@ def fair_loss(logits, labels, tokenizer, lambda_val=0.1):
         minority_class_loss = class_losses[i]
         distance = (minority_class_loss - majority_class_loss)**2
         total_loss = total_loss + distance
+
+    adjustment_factor = adjust_scale(llm_loss.detach().float().item(), total_loss.detach().float().item())
     
-    return lambda_val*total_loss
+    return lambda_val*total_loss*adjustment_factor, adjustment_factor
 
 
-    
 

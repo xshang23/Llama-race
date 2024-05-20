@@ -1,0 +1,23 @@
+Accuracy: 0.782
+
+Classification Report:
+              precision    recall  f1-score   support
+
+         API       0.42      0.74      0.53       515
+       Black       0.48      0.76      0.59      3720
+    Hispanic       0.78      0.90      0.83      4262
+       White       0.93      0.76      0.84     17446
+
+    accuracy                           0.78     25943
+   macro avg       0.65      0.79      0.70     25943
+weighted avg       0.83      0.78      0.79     25943
+
+
+Confusion Matrix:
+[[  379    49    37    50]
+ [   64  2840   104   712]
+ [   91   128  3817   226]
+ [  373  2866   962 13245]]
+
+1-GAP: 0.952
+Disparate Impact: 1.052
