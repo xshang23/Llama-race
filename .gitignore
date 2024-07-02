@@ -163,7 +163,10 @@ cython_debug/
 data/
 
 #trained models
-trained_weigths/
+trained_weights/
 merged_model/
+logs/
+wave_log/
+model/
 
 
