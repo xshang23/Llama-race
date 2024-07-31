@@ -28,6 +28,18 @@ MODEL_PATH = {
             'Meta-Llama-3-8B-Instruct': '/WAVE/projects/newsq_scu/base_models/Meta-Llama-3-8B-Instruct',
             }
 
+def find_special_token_index(tokenized_text, tokenizer):
+    # This function finds the index of the space after ':'
+    # We assume the format ': ' appears in the text
+    token_ids = tokenized_text['input_ids']
+    colon_token_id = tokenizer.convert_tokens_to_ids(':')
+    space_token_id = tokenizer.convert_tokens_to_ids(' ')
+    
+    # Loop to find ': '
+    for i in range(len(token_ids) - 1):
+        if token_ids[i] == colon_token_id and token_ids[i + 1] == space_token_id:
+            return i + 1  # Return the index of the space following the colon
+    return -1 
 
 def predict(test, model, tokenizer, logger=None):
     y_pred = []
@@ -37,7 +49,7 @@ def predict(test, model, tokenizer, logger=None):
         pipe = pipeline(task="text-generation", 
                         model=model, 
                         tokenizer=tokenizer, 
-                        max_new_tokens = 3, 
+                        max_new_tokens = 5, 
                         # temperature = 0.01,
                         do_sample = False,
                        )
@@ -67,7 +79,9 @@ def main(frac=0.01,
          batch_size=16, 
          model_name="meta-llama/Llama-2-7b-chat-hf",
          exp_name="fair_loss",
-         loss_scale=True,):
+         loss_scale=True,
+         reg_type='l2',
+         ):
     
     # get working directory
     cwd = os.getcwd()
@@ -111,7 +125,7 @@ def main(frac=0.01,
     peft_config = LoraConfig(
             lora_alpha=16, 
             lora_dropout=0.1,
-            r=64,
+            r=32,
             bias="none",
             task_type="CAUSAL_LM",
         )
@@ -146,11 +160,18 @@ def main(frac=0.01,
         model.train()
         for step, batch in enumerate(tqdm(train_loader)):
             optimizer.zero_grad()
-            input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=True).input_ids.to(device)
-            vir_labels = input_ids.to(device)
-            outputs = model(input_ids=input_ids, labels=vir_labels)
+            special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
+            input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=False).input_ids.to(device)
+            # vir_labels = input_ids.to(device)
+            outputs = model(input_ids=input_ids, labels=input_ids)
             labels = torch.tensor(batch['label']).to(device)
-            fairness_loss = fair_loss(outputs.logits, labels, tokenizer, lambda_val=lambda_val)
+            fairness_loss = fair_loss(outputs.logits, 
+                                      labels, tokenizer, 
+                                      lambda_val=lambda_val,
+                                      special_token_indices=special_token_indices,
+                                      model_parameters=model.parameters(),
+                                      reg_type=reg_type,
+                                    )
             if lambda_val == 0:
                 loss = outputs.loss
             else:
@@ -177,11 +198,20 @@ def main(frac=0.01,
         total_fairness_loss = 0
         total_LLM_loss = 0
         for step, batch in enumerate(tqdm(eval_loader)):
+            special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
             input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=True).input_ids.to(device)
-            vir_labels = input_ids.to(device)
-            outputs = model(input_ids=input_ids, labels=vir_labels)
+            # vir_labels = input_ids.to(device)
+            outputs = model(input_ids=input_ids, labels=input_ids)
             labels = torch.tensor(batch['label']).to(device)
-            fairness_loss = fair_loss(outputs.logits, labels, tokenizer, lambda_val=lambda_val, loss_scale=loss_scale)
+            fairness_loss = fair_loss(outputs.logits, 
+                                      labels, 
+                                      tokenizer, 
+                                      lambda_val=lambda_val, 
+                                      loss_scale=loss_scale, 
+                                      special_token_indices=special_token_indices, 
+                                      model_parameters=model.parameters(),
+                                      reg_type=reg_type,
+                                      )
             llm_loss = outputs.loss.detach().float().item()
             if lambda_val == 0:
                 loss = outputs.loss 
@@ -210,7 +240,9 @@ def main(frac=0.01,
     #     print("Error saving model")
     #     print(e, "\n")
     #     pass
-    
+    del train_loader, eval_loader
+    torch.cuda.empty_cache()
+
     #calculate the loss on the test set
     # for step, batch in enumerate(tqdm(eval_loader)):
     #     pass
@@ -220,11 +252,19 @@ def main(frac=0.01,
     total_fairness_loss = 0
     total_LLM_loss = 0
     for step, batch in enumerate(tqdm(test_loader)):
+        special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
         input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=True).input_ids.to(device)
-        vir_labels = input_ids.to(device)
-        outputs = model(input_ids=input_ids, labels=vir_labels)
+        # vir_labels = input_ids.to(device)
+        outputs = model(input_ids=input_ids, labels=input_ids)
         labels = torch.tensor(batch['label']).to(device)
-        fairness_loss = fair_loss(outputs.logits, labels, tokenizer, lambda_val=lambda_val, loss_scale=loss_scale)
+        fairness_loss = fair_loss(outputs.logits, 
+                                  labels, tokenizer, 
+                                  lambda_val=lambda_val, 
+                                  loss_scale=loss_scale, 
+                                  special_token_indices=special_token_indices,
+                                  model_parameters=model.parameters(),
+                                  reg_type=reg_type,
+                                  )
         llm_loss = outputs.loss.detach().float().item()
         fairness_loss = fairness_loss.detach().float().item()
         total_fairness_loss += fairness_loss
@@ -284,6 +324,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="logs", help="Log directory (default: logs)")
     parser.add_argument("--exp_name", type=str, default="debug", help="Experiment name (default: debug)")
     parser.add_argument("--loss_scale", type=bool, default=True, help="Loss scaling flag (default: True)")
+    parser.add_argument("--reg_type", type=str, default='l2', help="Regularization type (default: l2)")
     # parser.add_argument("--training_num_samples_per_class", type=int, default=180000, help="Number of training samples per class (default: 180000)")
     # parser.add_argument("--eval_num_samples_per_class", type=int, default=20000, help="Number of evaluation samples per class (default: 20000)")
 
@@ -300,5 +341,6 @@ if __name__ == "__main__":
         model_name=args.model_name,
         exp_name=args.exp_name,
         loss_scale=args.loss_scale,
+        reg_type=args.reg_type,
         )
 
