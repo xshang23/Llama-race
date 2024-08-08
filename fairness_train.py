@@ -27,6 +27,7 @@ MODEL_PATH = {
             'Llama-2-7b-chat-hf': '/WAVE/projects/newsq_scu/base_models/Llama-2-7b-chat-hf',
             'Meta-Llama-3-8B-Instruct': '/WAVE/projects/newsq_scu/base_models/Meta-Llama-3-8B-Instruct',
             }
+reg_lambda = 0.01
 
 def find_special_token_index(tokenized_text, tokenizer):
     # This function finds the index of the space after ':'
@@ -44,7 +45,6 @@ def find_special_token_index(tokenized_text, tokenizer):
 def predict(test, model, tokenizer, logger=None):
     y_pred = []
     for i in tqdm(range(len(test))):
-    # for i in [69, 222, 676, 1270, 2060, 3684, 3827, 4472, 4799, 4972, 5120]:
         prompt = test.iloc[i]["name"]
         pipe = pipeline(task="text-generation", 
                         model=model, 
@@ -134,8 +134,8 @@ def main(frac=0.01,
                                               token='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'
                                               )
     # if tokenizer.pad_token_id is None:
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.pad_token_id = tokenizer.eos_token_id
+    #     tokenizer.pad_token = tokenizer.eos_token
+    #     tokenizer.pad_token_id = tokenizer.eos_token_id
 
     model = get_peft_model(model, peft_config)
     # trainable_params, all_param = model.get_nb_trainable_parameters()
@@ -166,16 +166,26 @@ def main(frac=0.01,
             outputs = model(input_ids=input_ids, labels=input_ids)
             labels = torch.tensor(batch['label']).to(device)
             fairness_loss = fair_loss(outputs.logits, 
-                                      labels, tokenizer, 
+                                      labels, 
+                                      tokenizer, 
                                       lambda_val=lambda_val,
                                       special_token_indices=special_token_indices,
-                                      model_parameters=model.parameters(),
-                                      reg_type=reg_type,
+                                      loss_scale=loss_scale,
                                     )
             if lambda_val == 0:
                 loss = outputs.loss
             else:
                 loss = outputs.loss + fairness_loss
+
+            # Regularization
+            if reg_type == 'l2':
+                l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+                regularization = reg_lambda * l2_norm
+            elif reg_type == 'l1':
+                l1_norm = sum(p.abs().sum() for p in model.parameters())
+                regularization = reg_lambda * l1_norm
+
+            loss = loss + regularization
             
             logwriter.add_scalar('Training/train_loss_step', loss.detach().float().item(), current_step)
             logwriter.add_scalar('Training/LLM_loss_step', outputs.loss.detach().float().item(), current_step)
@@ -209,14 +219,23 @@ def main(frac=0.01,
                                       lambda_val=lambda_val, 
                                       loss_scale=loss_scale, 
                                       special_token_indices=special_token_indices, 
-                                      model_parameters=model.parameters(),
-                                      reg_type=reg_type,
                                       )
             llm_loss = outputs.loss.detach().float().item()
             if lambda_val == 0:
                 loss = outputs.loss 
             else:   
                 loss = outputs.loss + fairness_loss
+
+            #Regularization
+            if reg_type == 'l2':
+                l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+                regularization = reg_lambda * l2_norm
+            elif reg_type == 'l1':
+                l1_norm = sum(p.abs().sum() for p in model.parameters())
+                regularization = reg_lambda * l1_norm
+
+            loss = loss + regularization
+            
             total_loss += loss.detach().float().item()
             fairness_loss = fairness_loss.detach().float().item()
             total_fairness_loss += fairness_loss
@@ -262,17 +281,32 @@ def main(frac=0.01,
                                   lambda_val=lambda_val, 
                                   loss_scale=loss_scale, 
                                   special_token_indices=special_token_indices,
-                                  model_parameters=model.parameters(),
-                                  reg_type=reg_type,
                                   )
+        
+        if lambda_val == 0:
+                loss = outputs.loss 
+        else:   
+            loss = outputs.loss + fairness_loss
+        # Regularization
+        if reg_type == 'l2':
+            l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+            regularization = reg_lambda * l2_norm
+        elif reg_type == 'l1':
+            l1_norm = sum(p.abs().sum() for p in model.parameters())
+            regularization = reg_lambda * l1_norm
+
+        loss = loss + regularization
+
         llm_loss = outputs.loss.detach().float().item()
         fairness_loss = fairness_loss.detach().float().item()
         total_fairness_loss += fairness_loss
         total_LLM_loss += llm_loss
         if lambda_val == 0:
-            total_loss += llm_loss
+            total_loss += loss.detach().float().item()
         else:   
-            total_loss += llm_loss + fairness_loss
+            total_loss += loss.detach().float().item() + fairness_loss
+
+
 
         # avg_test_loss.update(llm_loss + fairness_loss)
         # logwriter.add_scalar('Test/test_loss_step', loss.detach().float().item(), steps)
