@@ -8,6 +8,9 @@ def fair_loss(logits,
               lambda_val=0.1,
               loss_scale=True,
               special_token_indices=None,
+              reg_lambda=0.01,
+              reg_type='l2',
+              model_parameters=None,
               ):
     class_names = ["Asian", "Black", "Hispanic", "White"]
     class_tokens = [tokenizer.encode(class_name, add_special_tokens=False)[0] for class_name in class_names]
@@ -52,12 +55,12 @@ def fair_loss(logits,
     del losses, class_losses, class_logits, labels_one_hot
 
     # Regularization
-    # if reg_type == 'l2':
-    #     l2_norm = sum(p.pow(2.0).sum() for p in model_parameters)
-    #     regularization = reg_lambda * l2_norm
-    # elif reg_type == 'l1':
-    #     l1_norm = sum(p.abs().sum() for p in model_parameters)
-    #     regularization = reg_lambda * l1_norm
+    if reg_type == 'l2':
+        l2_norm = sum(p.pow(2.0).sum() for p in model_parameters)
+        regularization = reg_lambda * l2_norm
+    elif reg_type == 'l1':
+        l1_norm = sum(p.abs().sum() for p in model_parameters)
+        regularization = reg_lambda * l1_norm
 
     if loss_scale:
         total_loss = total_loss * 10e2

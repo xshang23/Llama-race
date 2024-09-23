@@ -26,8 +26,9 @@ MODEL_PATH = {
             'Mistral-7B-v0.1': '/WAVE/projects/newsq_scu/base_models/Mistral-7B-v0.1',
             'Llama-2-7b-chat-hf': '/WAVE/projects/newsq_scu/base_models/Llama-2-7b-chat-hf',
             'Meta-Llama-3-8B-Instruct': '/WAVE/projects/newsq_scu/base_models/Meta-Llama-3-8B-Instruct',
+            'Meta-Llama-3.1-8B-Instruct': '/WAVE/projects/newsq_scu/base_models/Meta-Llama-3.1-8B-Instruct',
             }
-reg_lambda = 0.01
+# reg_lambda = 0.01
 
 def find_special_token_index(tokenized_text, tokenizer):
     # This function finds the index of the space after ':'
@@ -114,6 +115,7 @@ def main(frac=0.01,
 
     # model_name = MODEL_PATH[model_name]
     # num_epochs = 2
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = AutoModelForCausalLM.from_pretrained(
             MODEL_PATH[model_name], 
@@ -133,9 +135,9 @@ def main(frac=0.01,
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name],
                                               token='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'
                                               )
-    # if tokenizer.pad_token_id is None:
-    #     tokenizer.pad_token = tokenizer.eos_token
-    #     tokenizer.pad_token_id = tokenizer.eos_token_id
+    # if tokenizer.pad_token_id is None
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token_id = tokenizer.eos_token_id
 
     model = get_peft_model(model, peft_config)
     # trainable_params, all_param = model.get_nb_trainable_parameters()
@@ -162,6 +164,7 @@ def main(frac=0.01,
             optimizer.zero_grad()
             special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
             input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=False).input_ids.to(device)
+            # input_ids = tokenizer(batch['data'], return_tensors="pt",).input_ids.to(device)
             # vir_labels = input_ids.to(device)
             outputs = model(input_ids=input_ids, labels=input_ids)
             labels = torch.tensor(batch['label']).to(device)
@@ -171,6 +174,8 @@ def main(frac=0.01,
                                       lambda_val=lambda_val,
                                       special_token_indices=special_token_indices,
                                       loss_scale=loss_scale,
+                                      reg_type=reg_type, 
+                                      model_parameters=model.parameters(),
                                     )
             if lambda_val == 0:
                 loss = outputs.loss
@@ -178,14 +183,13 @@ def main(frac=0.01,
                 loss = outputs.loss + fairness_loss
 
             # Regularization
-            if reg_type == 'l2':
-                l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
-                regularization = reg_lambda * l2_norm
-            elif reg_type == 'l1':
-                l1_norm = sum(p.abs().sum() for p in model.parameters())
-                regularization = reg_lambda * l1_norm
-
-            loss = loss + regularization
+            # if reg_type == 'l2':
+            #     l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+            #     regularization = reg_lambda * l2_norm
+            # elif reg_type == 'l1':
+            #     l1_norm = sum(p.abs().sum() for p in model.parameters())
+            #     regularization = reg_lambda * l1_norm
+            # loss = loss + regularization
             
             logwriter.add_scalar('Training/train_loss_step', loss.detach().float().item(), current_step)
             logwriter.add_scalar('Training/LLM_loss_step', outputs.loss.detach().float().item(), current_step)
@@ -209,7 +213,8 @@ def main(frac=0.01,
         total_LLM_loss = 0
         for step, batch in enumerate(tqdm(eval_loader)):
             special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
-            input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=True).input_ids.to(device)
+            input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=False).input_ids.to(device)
+            # input_ids = tokenizer(batch['data'], return_tensors="pt",).input_ids.to(device)
             # vir_labels = input_ids.to(device)
             outputs = model(input_ids=input_ids, labels=input_ids)
             labels = torch.tensor(batch['label']).to(device)
@@ -219,6 +224,8 @@ def main(frac=0.01,
                                       lambda_val=lambda_val, 
                                       loss_scale=loss_scale, 
                                       special_token_indices=special_token_indices, 
+                                      reg_type=reg_type,
+                                      model_parameters=model.parameters(),
                                       )
             llm_loss = outputs.loss.detach().float().item()
             if lambda_val == 0:
@@ -227,28 +234,23 @@ def main(frac=0.01,
                 loss = outputs.loss + fairness_loss
 
             #Regularization
-            if reg_type == 'l2':
-                l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
-                regularization = reg_lambda * l2_norm
-            elif reg_type == 'l1':
-                l1_norm = sum(p.abs().sum() for p in model.parameters())
-                regularization = reg_lambda * l1_norm
-
-            loss = loss + regularization
+            # if reg_type == 'l2':
+            #     l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+            #     regularization = reg_lambda * l2_norm
+            # elif reg_type == 'l1':
+            #     l1_norm = sum(p.abs().sum() for p in model.parameters())
+            #     regularization = reg_lambda * l1_norm
+            # loss = loss + regularization
             
             total_loss += loss.detach().float().item()
             fairness_loss = fairness_loss.detach().float().item()
             total_fairness_loss += fairness_loss
             total_LLM_loss += llm_loss
             avg_val_loss.update(loss.detach().float().item())
+
         logger.info(f"Val loss: {total_loss/len(eval_loader)}, epoch: {epoch}")
         logger.info(f"Val fairness loss: {total_fairness_loss/len(eval_loader)}, epoch: {epoch}")
         logger.info(f"Val LLM loss: {total_LLM_loss/len(eval_loader)}, epoch: {epoch}")
-            # logwriter.add_scalar('Val/val_loss_step', loss.detach().float().item(), steps)
-            # logwriter.add_scalar('Val/val_LLM_loss_step', outputs.loss.detach().float().item(), steps)
-            # logwriter.add_scalar('Val/fairness_loss_step', fairness_loss.detach().float().item(), steps)
-            # logwriter.add_scalar('Val/val_loss_avg', avg_val_loss.avg, steps)
-            # steps += 1
 
         logwriter.add_scalar('Training/train_loss_epoch', avg_train_loss.avg, epoch)
         logwriter.add_scalar('Training/val_loss_epoch', avg_val_loss.avg, epoch)
@@ -260,7 +262,7 @@ def main(frac=0.01,
     #     print(e, "\n")
     #     pass
     del train_loader, eval_loader
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
 
     #calculate the loss on the test set
     # for step, batch in enumerate(tqdm(eval_loader)):
@@ -272,7 +274,8 @@ def main(frac=0.01,
     total_LLM_loss = 0
     for step, batch in enumerate(tqdm(test_loader)):
         special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
-        input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=True).input_ids.to(device)
+        input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=False).input_ids.to(device)
+        # input_ids = tokenizer(batch['data'], return_tensors="pt",).input_ids.to(device)
         # vir_labels = input_ids.to(device)
         outputs = model(input_ids=input_ids, labels=input_ids)
         labels = torch.tensor(batch['label']).to(device)
@@ -281,21 +284,23 @@ def main(frac=0.01,
                                   lambda_val=lambda_val, 
                                   loss_scale=loss_scale, 
                                   special_token_indices=special_token_indices,
+                                  reg_type=reg_type,
+                                  model_parameters=model.parameters(),
                                   )
         
         if lambda_val == 0:
                 loss = outputs.loss 
         else:   
             loss = outputs.loss + fairness_loss
-        # Regularization
-        if reg_type == 'l2':
-            l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
-            regularization = reg_lambda * l2_norm
-        elif reg_type == 'l1':
-            l1_norm = sum(p.abs().sum() for p in model.parameters())
-            regularization = reg_lambda * l1_norm
 
-        loss = loss + regularization
+        # # Regularization
+        # if reg_type == 'l2':
+        #     l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+        #     regularization = reg_lambda * l2_norm
+        # elif reg_type == 'l1':
+        #     l1_norm = sum(p.abs().sum() for p in model.parameters())
+        #     regularization = reg_lambda * l1_norm
+        # loss = loss + regularization
 
         llm_loss = outputs.loss.detach().float().item()
         fairness_loss = fairness_loss.detach().float().item()

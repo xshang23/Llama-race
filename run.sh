@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=0.0_l2          # Job name
-#SBATCH --output=./wave_log/l2/0.0res.txt       # Output file name
-#SBATCH --error=./wave_log/l2/0.0error.txt      # Error file name
+#SBATCH --job-name=0.01_l2          # Job name
+#SBATCH --output=./wave_log/3.1/0.01res.txt       # Output file name
+#SBATCH --error=./wave_log/3.1/0.01error.txt      # Error file name
 #SBATCH --time=48:00:00            # Time limit hrs:min:sec
 #SBATCH --partition=gpu            # Partition to submit to
 #SBATCH --gres=gpu:1               # Number of GPUs to user
@@ -19,10 +19,11 @@ source venv/bin/activate
 
 # pip install -r requirements.txt
 
-python fairness_train.py --lambda_val 0.0 --model_name Meta-Llama-3-8B-Instruct --frac 0.001 --exp_name l2_norm_scale --batch_size 8 --loss_scale True --reg_type l2
+python fairness_train.py --lambda_val 0.01 --model_name Meta-Llama-3.1-8B-Instruct --frac 0.001 --exp_name llama3.1 --batch_size 8 --loss_scale True --reg_type l2
 
 #Mistral-7B-v0.1
 #Llama-2-7b-chat-hf
 #Meta-Llama-3-8B-Instruct
+#Meta-Llama-3.1-8B-Instruct
 
 
