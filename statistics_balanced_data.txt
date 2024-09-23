@@ -1,3 +1,0 @@
-Training data: 360000
-Evaluation data: 40000
-Test data: 25943
