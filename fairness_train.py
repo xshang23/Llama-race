@@ -161,15 +161,20 @@ def main(frac=0.01,
         print(f"Epoch {epoch + 1}")
         model.train()
         for step, batch in enumerate(tqdm(train_loader)):
+            # print(f"Training Step {step}")
             optimizer.zero_grad()
             special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
             input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=False).input_ids.to(device)
-            # input_ids = tokenizer(batch['data'], return_tensors="pt",).input_ids.to(device)
-            # vir_labels = input_ids.to(device)
-            outputs = model(input_ids=input_ids, labels=input_ids)
-            labels = torch.tensor(batch['label']).to(device)
-            fairness_loss = fair_loss(outputs.logits, 
-                                      labels, 
+            
+            labels = input_ids.clone()
+            # Masking tokens before the special token including the special token itself
+            for i, idx in enumerate(special_token_indices):
+                labels[i, :idx] = -100 
+            
+            outputs = model(input_ids=input_ids, labels=labels)
+            gt_labels = torch.tensor(batch['label']).to(device)
+            fairness_loss = fair_loss(outputs, 
+                                      gt_labels, 
                                       tokenizer, 
                                       lambda_val=lambda_val,
                                       special_token_indices=special_token_indices,
@@ -214,12 +219,16 @@ def main(frac=0.01,
         for step, batch in enumerate(tqdm(eval_loader)):
             special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
             input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=False).input_ids.to(device)
-            # input_ids = tokenizer(batch['data'], return_tensors="pt",).input_ids.to(device)
-            # vir_labels = input_ids.to(device)
-            outputs = model(input_ids=input_ids, labels=input_ids)
-            labels = torch.tensor(batch['label']).to(device)
+            labels = input_ids.clone()
+
+            # Masking tokens before the special token including the special token itself
+            for i, idx in enumerate(special_token_indices):
+                labels[i, :idx] = -100 
+            
+            outputs = model(input_ids=input_ids, labels=labels)
+            gt_labels = torch.tensor(batch['label']).to(device)
             fairness_loss = fair_loss(outputs.logits, 
-                                      labels, 
+                                      gt_labels, 
                                       tokenizer, 
                                       lambda_val=lambda_val, 
                                       loss_scale=loss_scale, 
@@ -265,8 +274,7 @@ def main(frac=0.01,
     # torch.cuda.empty_cache()
 
     #calculate the loss on the test set
-    # for step, batch in enumerate(tqdm(eval_loader)):
-    #     pass
+    
     model.eval()
     # steps = 0
     total_loss = 0
@@ -275,12 +283,17 @@ def main(frac=0.01,
     for step, batch in enumerate(tqdm(test_loader)):
         special_token_indices = [find_special_token_index(tokenizer(batch['data'][i]), tokenizer) for i in range(len(batch['data']))]
         input_ids = tokenizer(batch['data'], return_tensors="pt", padding=True, truncation=False).input_ids.to(device)
+        labels = input_ids.clone()
         # input_ids = tokenizer(batch['data'], return_tensors="pt",).input_ids.to(device)
         # vir_labels = input_ids.to(device)
+        # Masking tokens before the special token including the special token itself
+        for i, idx in enumerate(special_token_indices):
+            labels[i, :idx] = -100 
         outputs = model(input_ids=input_ids, labels=input_ids)
-        labels = torch.tensor(batch['label']).to(device)
+        gt_labels = torch.tensor(batch['label']).to(device)
         fairness_loss = fair_loss(outputs.logits, 
-                                  labels, tokenizer, 
+                                  gt_labels, 
+                                  tokenizer, 
                                   lambda_val=lambda_val, 
                                   loss_scale=loss_scale, 
                                   special_token_indices=special_token_indices,
@@ -289,7 +302,7 @@ def main(frac=0.01,
                                   )
         
         if lambda_val == 0:
-                loss = outputs.loss 
+            loss = outputs.loss 
         else:   
             loss = outputs.loss + fairness_loss
 
